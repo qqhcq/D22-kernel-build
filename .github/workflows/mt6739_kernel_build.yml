@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       defconfig:
-        description: 'Kernel defconfig (e.g., mt6739_64_defconfig)'
+        description: 'Kernel defconfig (e.g., k39tv1_64_bsp_defconfig)'
         required: true
-        default: 'mt6739_64_defconfig'
+        default: 'k39tv1_64_bsp_defconfig'
       make_target:
         description: 'Make target (default: Image.gz-dtb)'
         required: false
@@ -34,13 +34,29 @@ jobs:
           git clone "${{ github.event.inputs.kernel_repo_url }}" kernel_src
           (cd kernel_src && git submodule update --init --recursive || true)
 
+      - name: List available defconfigs
+        run: |
+          cd kernel_src
+          echo "Available defconfigs under arch/arm64/configs (first 200 entries):"
+          ls arch/arm64/configs | sed -n '1,200p' || true
+
       - name: Configure
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-gnu-
         run: |
           cd kernel_src
-          make ${{ github.event.inputs.defconfig }} ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
+          DEFCONFIG_INPUT="${{ github.event.inputs.defconfig }}"
+          DEFCONFIG=""
+          for cfg in ${DEFCONFIG_INPUT} k39tv1_64_bsp_defconfig k63v2_64_bsp_defconfig k63v1_64_bsp_defconfig; do
+            if [ -f "arch/arm64/configs/${cfg}" ]; then DEFCONFIG="${cfg}"; break; fi
+          done
+          if [ -z "${DEFCONFIG}" ]; then
+            echo "No known defconfig found. Please choose one from the listing above."
+            exit 1
+          fi
+          echo "Using defconfig: ${DEFCONFIG}"
+          make ${DEFCONFIG} ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
           # Merge ACM config fragment
           cat ../scripts/acm_defconfig_fragment.config >> .config || true
           yes "" | make olddefconfig ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}

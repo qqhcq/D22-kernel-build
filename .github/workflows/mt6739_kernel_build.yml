@@ -1,0 +1,62 @@
+name: MT6739 Kernel Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      defconfig:
+        description: 'Kernel defconfig (e.g., mt6739_64_defconfig)'
+        required: true
+        default: 'mt6739_64_defconfig'
+      make_target:
+        description: 'Make target (default: Image.gz-dtb)'
+        required: false
+        default: 'Image.gz-dtb'
+      kernel_repo_url:
+        description: 'Kernel repo URL to clone (default: cateajansmedya/android_kernel_mediatek_mt6739)'
+        required: false
+        default: 'https://github.com/cateajansmedya/android_kernel_mediatek_mt6739'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc flex bison libssl-dev libncurses-dev gcc-aarch64-linux-gnu git python3
+
+      - name: Clone kernel sources
+        run: |
+          rm -rf kernel_src || true
+          git clone "${{ github.event.inputs.kernel_repo_url }}" kernel_src
+          (cd kernel_src && git submodule update --init --recursive || true)
+
+      - name: Configure
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+        run: |
+          cd kernel_src
+          make ${{ github.event.inputs.defconfig }} ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
+          # Merge ACM config fragment
+          cat ../scripts/acm_defconfig_fragment.config >> .config || true
+          yes "" | make olddefconfig ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
+
+      - name: Build
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+        run: |
+          cd kernel_src
+          make -j$(nproc) ${{ github.event.inputs.make_target }} ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
+          mkdir -p out
+          cp arch/arm64/boot/Image.gz-dtb out/ || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt6739-kernel-out
+          path: kernel_src/out/**
